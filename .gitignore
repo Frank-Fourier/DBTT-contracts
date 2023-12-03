@@ -1,0 +1,39 @@
+# macOS system files
+.DS_Store
+
+# Node.js dependencies
+/node_modules
+
+# Hardhat artifacts
+/artifacts
+
+# Solidity build outputs
+/build
+
+# Compiled contract files
+/contracts/*.json
+
+# Hardhat configuration files
+/hardhat.config.js
+
+# Hardhat cache
+/.hardhat
+
+# Solidity coverage reports
+/coverage
+/cache
+/typechain-types
+
+# Local development files (optional)
+.env
+.env.development.local
+.env.test.local
+
+# IDE-specific files (optional)
+.vscode
+.idea
+
+# Dependency lock files (optional)
+npm-shrinkwrap.json
+yarn.lock
+package-lock.json
