@@ -5,9 +5,9 @@
   "main": "index.js",
   "scripts": {
     "test": "npx hardhat --network hardhat test",
-    "deploy-testnet": "npx hardhat run --network goerli scripts/deployVault.ts",
+    "deploy-testnet": "npx hardhat run --network goerli scripts/deployCrowdsaleDBTT.ts",
     "verify-testnet": "npx hardhat run --network goerli scripts/verify.ts",
-    "deploy-mainnet": "npx hardhat run --network goerli scripts/deploy.ts",
+    "deploy-mainnet": "npx hardhat run --network goerli scripts/deployDBTT.ts",
     "verify-mainnet": "npx hardhat run --network goerli scripts/verify.ts"
   },
   "keywords": [],
