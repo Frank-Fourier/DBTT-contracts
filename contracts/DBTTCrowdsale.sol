@@ -346,7 +346,7 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
     }
 
     function setServiceFee(uint256 _serviceFee, address _serviceFeeReceiver) external onlyOwner {
-        require(!isPresaleOpened && !isPresaleSuccess && !isPresaleCancelled, "Presale is already started");
+        require(!isPresaleSuccess && !isPresaleCancelled, "Presale is already started");
         serviceFee = _serviceFee;
         serviceFeeReceiver = _serviceFeeReceiver;
     }
@@ -666,6 +666,7 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
 
     // Function to withdraw all USDT and all WETH
     function withdrawAll() external onlyOwner nonReentrant {
+        require(isPresaleSuccess, "Presale is not completed");
         uint256 amountUSDT = IERC20(USDT).balanceOf(address(this));
         uint256 amountETH = IERC20(WETH).balanceOf(address(this));
         require(
