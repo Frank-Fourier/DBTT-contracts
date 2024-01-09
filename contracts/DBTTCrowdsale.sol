@@ -91,30 +91,21 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
     }
 
     struct Presale {
-        uint256 _presaleStartTime;
-        uint256 _presaleEndTime;
-        uint256 _vestingInterval;
-        uint256 _referralDepth;
-        uint256[] _commissionRates;
-        uint256 _priceUSDTRate;
-        uint256 _minUSDTContribution;
-        uint256 _minETHContribution;
-        uint256 _maxDBTTAllocation;
-        uint256 _saleCapDBTT;
-        uint256 _nextPriceUSDTRate;
+        uint256 priceUSDTRate;
+        uint256 saleCapDBTT;
     }
 
-    // Mapping from user address to User struct.
     mapping(address => User) public users;
+    mapping(uint256 => Presale) public contributionRound;
 
     // Addresses for USDT, WETH, and DBTT tokens.
     address public constant USDT = 0x4d527d0b4E5Fc7cb057EbdE78f1c69FFC337125B;
     address public constant WETH = 0xB4FBF271143F4FBf7B91A5ded31805e42b2208d6;
     address public constant DBTT = 0xe1fFB714B7A3A6b2e823d036e75076887382d6bB;
+    address public serviceFeeReceiver;
     IWETH private constant weth = IWETH(WETH);
-    Oracle public constant priceFeed = Oracle(
-        0xD4a33860578De61DBAbDc8BFdb98FD742fA7028e
-    );
+    Oracle public constant priceFeed =
+        Oracle(0xD4a33860578De61DBAbDc8BFdb98FD742fA7028e);
 
     // Commission rates for the referral program.
     uint256[] public commissionRates;
@@ -127,8 +118,6 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
     uint256 public minETHContribution;
     uint256 public maxDBTTAllocation;
     uint256 public saleCapDBTT;
-    uint256 public presaleStartTime;
-    uint256 public presaleEndTime;
     uint256 public vestingInterval;
 
     // Presale status tracking variables.
@@ -148,8 +137,13 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
     uint256 public globalCommissionDBTTPaid;
     uint256 public globalTotalAirdropClaimed;
     uint256 public totalPurchasedDBTT;
+    uint256 public totalRaisedUSDT;
+    uint256 public totalRaisedETH;
     uint256 public totalPurchasedDBTTClaimed;
-
+    uint256 public totalContributionRounds;
+    uint256 public currentRound;
+    uint256 public purchasedDBTTRound;
+    uint256 public serviceFee;
 
     // Event for new contribution
     event NewContribution(
@@ -163,6 +157,13 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
     // Retrieves the current price of ETH in USD
     function getETHPrice() public view returns (uint256) {
         return priceFeed.latestAnswer();
+    }
+
+    // retrieve global USDT value raised
+    function getGlobalRaisedUSDT() public view returns (uint256) {
+        //convert ETH to USDT for totalRaisedETH has 18 decimals, USDT 6 decimals and ETH price has 8 decimals
+        uint256 ethToUSDT = ((totalRaisedETH * getETHPrice()) / 10 ** 20);
+        return totalRaisedUSDT + ethToUSDT;
     }
 
     // Calculates the total commission based on commission rates.
@@ -255,18 +256,6 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
         commissionRates = _commissionRates;
     }
 
-    // Function to set presale start time
-    function setPresaleStartTime(uint256 _presaleStartTime) external onlyOwner {
-        require(!isPresaleSuccess && !isPresaleCancelled, "Presale is ended");
-        presaleStartTime = _presaleStartTime;
-    }
-
-    // Function to set presale end time
-    function setPresaleEndTime(uint256 _presaleEndTime) external onlyOwner {
-        require(!isPresaleSuccess && !isPresaleCancelled, "Presale is ended");
-        presaleEndTime = _presaleEndTime;
-    }
-
     // Function to set vesting interval
     function setVestingInterval(uint256 _vestingInterval) external onlyOwner {
         require(!isPresaleSuccess && !isPresaleCancelled, "Presale is ended");
@@ -286,26 +275,11 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
     }
 
     // Function to set presale opened
-    function setPresaleOpened(bool _isPresaleOpened) external onlyOwner {
+    function setPresaleOpened() external onlyOwner {
         require(!isPresaleSuccess && !isPresaleCancelled, "Presale is ended");
-        isPresaleOpened = _isPresaleOpened;
-    }
-
-    // Function to close presale
-    function setPresaleClosed(
-        bool _resetTime,
-        bool _resetCap
-    ) external onlyOwner {
-        require(!isPresaleSuccess && !isPresaleCancelled, "Presale is ended");
-        isPresaleOpened = false;
-        if (_resetTime) {
-            presaleStartTime = 0;
-            presaleEndTime = 0;
-        }
-        if (_resetCap) {
-            maxDBTTAllocation = 0;
-            saleCapDBTT = 0;
-        }
+        require(!isPresaleOpened, "Presale is already opened");
+        isPresaleOpened = true;
+        _startNewRound();
     }
 
     // Function to set commission DBTT
@@ -314,10 +288,7 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
         isCommissionDBTT = _isCommissionDBTT;
     }
 
-    // Function to set price ETH rate
-    function setPrice(
-        uint256 _priceUSDTRate
-    ) external onlyOwner {
+    function setPrice(uint256 _priceUSDTRate) external onlyOwner {
         require(!isPresaleSuccess && !isPresaleCancelled, "Presale is ended");
         priceUSDTRate = _priceUSDTRate;
     }
@@ -344,13 +315,7 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
         maxDBTTAllocation = _maxAllocationDBTT;
     }
 
-    // Function to set sale cap DBTT
-    function setSaleCapDBTT(uint256 _saleCapDBTT) public onlyOwner {
-        require(!isPresaleSuccess && !isPresaleCancelled, "Presale is ended");
-        saleCapDBTT = _saleCapDBTT;
-    }
-
-    // remove contribution limits
+    // Remove contribution limits
     function setRemoveContributionLimits() external onlyOwner {
         require(!isPresaleSuccess && !isPresaleCancelled, "Presale is ended");
         minUSDTContribution = 0;
@@ -358,101 +323,90 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
         maxDBTTAllocation = 0;
     }
 
-    // set next price ETH and USDT rate
-    function setNextPriceRates(
-        uint256 _nextPriceUSDTRate
+    function setRoundSaleCapDBTT(
+        uint256 _round,
+        uint256 _saleCapDBTT
     ) external onlyOwner {
-        require(!isPresaleSuccess && !isPresaleCancelled, "Presale is ended");
-        nextPriceUSDTRate = _nextPriceUSDTRate;
+        require(
+            !isPresaleOpened && !isPresaleSuccess && !isPresaleCancelled,
+            "Presale is already started"
+        );
+        contributionRound[_round].saleCapDBTT = _saleCapDBTT * 10 ** 18;
     }
 
-    function setPresaleSettings(
-        Presale calldata presaleConfig
+    function setRoundPriceUSDTRate(
+        uint256 _round,
+        uint256 _priceUSDTRate
     ) external onlyOwner {
-        require(!isPresaleSuccess && !isPresaleCancelled, "Presale is ended");
         require(
-            presaleConfig._commissionRates.length == presaleConfig._referralDepth,
-            "Rates must have same depth"
+            !isPresaleOpened && !isPresaleSuccess && !isPresaleCancelled,
+            "Presale is already started"
         );
-        if (
-            presaleConfig._presaleStartTime > 0 &&
-            presaleConfig._presaleEndTime > 0
-        ) {
-            require(
-                presaleConfig._presaleStartTime < presaleConfig._presaleEndTime,
-                "Start time must be before end time"
-            );
-        }
-        if (presaleConfig._presaleStartTime > 0) {
-            require(
-                presaleConfig._presaleStartTime > block.timestamp,
-                "Start time must be in the future"
-            );
-        }
-        if (presaleConfig._presaleEndTime > 0) {
-            require(
-                presaleConfig._presaleEndTime > block.timestamp,
-                "End time must be in the future"
-            );
+        contributionRound[_round].priceUSDTRate = _priceUSDTRate;
+    }
+
+    function setServiceFee(uint256 _serviceFee, address _serviceFeeReceiver) external onlyOwner {
+        require(!isPresaleOpened && !isPresaleSuccess && !isPresaleCancelled, "Presale is already started");
+        serviceFee = _serviceFee;
+        serviceFeeReceiver = _serviceFeeReceiver;
+    }
+
+    function _startNewRound() internal {
+        require(totalContributionRounds > 0, "No round exists yet!");
+        currentRound++;
+
+        if (purchasedDBTTRound > 0) {
+            purchasedDBTTRound = 0;
         }
 
-        nextPriceUSDTRate = presaleConfig._nextPriceUSDTRate;
+        priceUSDTRate = contributionRound[currentRound].priceUSDTRate;
+        saleCapDBTT = contributionRound[currentRound].saleCapDBTT;
+        if (contributionRound[currentRound + 1].priceUSDTRate > 0) {
+            nextPriceUSDTRate = contributionRound[currentRound + 1]
+                .priceUSDTRate;
+        } else {
+            nextPriceUSDTRate = 0;
+        }
+    }
 
-        // Set the referral program
-        referralDepth = presaleConfig._referralDepth;
-        commissionRates = presaleConfig._commissionRates;
+    function addNewRound(uint256 _saleCapDBTT, uint256 _priceUSDTRate) external onlyOwner {
+        require(
+            !isPresaleOpened && !isPresaleSuccess && !isPresaleCancelled,
+            "Presale is already started"
+        );
+        require(
+            _saleCapDBTT > 0 && _priceUSDTRate > 0,
+            "Sale cap and price must be greater than 0"
+        );
 
-        // Set the presale times
-        presaleStartTime = presaleConfig._presaleStartTime;
-        presaleEndTime = presaleConfig._presaleEndTime;
-
-        // Set the vesting interval
-        vestingInterval = presaleConfig._vestingInterval;
-
-        // Set the token allocation and sale cap limits
-        maxDBTTAllocation = presaleConfig._maxDBTTAllocation * 10 ** 18;
-        saleCapDBTT = presaleConfig._saleCapDBTT * 10 ** 18;
-
-        // Set the minimum contribution amounts
-        minUSDTContribution = presaleConfig._minUSDTContribution;
-        minETHContribution = presaleConfig._minETHContribution;
-
-        priceUSDTRate = presaleConfig._priceUSDTRate;
+        totalContributionRounds++;
+        contributionRound[totalContributionRounds - 1].saleCapDBTT =
+            _saleCapDBTT *
+            10 ** 18;
+        contributionRound[totalContributionRounds - 1]
+            .priceUSDTRate = _priceUSDTRate;
     }
 
     /////////////////////////////// MAIN ///////////////////////////////
 
     function contributeWithETH(address referrer) external payable nonReentrant {
         require(!isPresaleSuccess && !isPresaleCancelled, "Presale is ended");
-        if (presaleEndTime > 0 && block.timestamp >= presaleEndTime) {
-            if (isPresaleOpened) isPresaleOpened = false;
-            revert("Presale is closed");
-        }
-        require((isPresaleOpened || presaleStartTime > 0), "Presale is closed");
-        if (presaleStartTime > 0) {
-            require(
-                block.timestamp >= presaleStartTime,
-                "Presale has not started yet"
-            );
-            if (!isPresaleOpened) isPresaleOpened = true;
-        }
-        if (saleCapDBTT > 0) {
-            require(totalPurchasedDBTT <= saleCapDBTT, "Sale cap reached");
-        }
+        require(isPresaleOpened, "Presale is closed");
+
         if (minETHContribution > 0) {
             require(
                 msg.value >= minETHContribution,
                 "Amount must be greater than min contribution"
             );
+        } else {
+            require(msg.value > 1000, "Amount must be greater than 1000 wei");
         }
 
         require(msg.value > 0, "Amount must be greater than 0");
         weth.deposit{value: msg.value}();
 
-        uint256 priceETHRate = getETHPrice() * priceUSDTRate / 10 ** 8;
-
         users[msg.sender].totalContributionETH += msg.value;
-        uint256 allocation = msg.value * priceETHRate;
+        uint256 allocation = msg.value * getETHPrice() * priceUSDTRate / 10 ** 8;
 
         if (maxDBTTAllocation > 0) {
             require(
@@ -461,21 +415,31 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
                 "Amount must be less than max allocation"
             );
         }
-        if (saleCapDBTT > 0) {
-            require(
-                totalPurchasedDBTT + allocation <= saleCapDBTT,
-                "Sale cap reached"
-            );
+
+        if (purchasedDBTTRound + allocation > saleCapDBTT) {
+            if (currentRound + 1 < totalContributionRounds) {
+                uint256 remainingDBTT = allocation - (saleCapDBTT - purchasedDBTTRound);
+                _startNewRound();
+                purchasedDBTTRound += remainingDBTT;
+            } else {
+                revert("Sale cap reached");
+            }
+        } else {
+            purchasedDBTTRound += allocation;
         }
+
         users[msg.sender].totalPurchasedTokens += allocation;
         totalPurchasedDBTT += allocation;
+        totalRaisedETH += msg.value;
 
         if (referrer != address(0)) {
             setReferrer(msg.sender, referrer);
         }
 
         // Distribute commissions (if applicable)
-        distributeCommissions(msg.sender, WETH, msg.value); // Adjust this function as needed
+        if (referralDepth > 0) {
+            distributeCommissions(msg.sender, WETH, msg.value);
+        }
 
         emit NewContribution(msg.sender, msg.value, referrer);
     }
@@ -487,32 +451,23 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
         address referrer
     ) external nonReentrant {
         require(!isPresaleSuccess && !isPresaleCancelled, "Presale is ended");
-        if (presaleEndTime > 0 && block.timestamp >= presaleEndTime) {
-            if (isPresaleOpened) isPresaleOpened = false;
-            revert("Presale is closed");
-        }
-        require((isPresaleOpened || presaleStartTime > 0), "Presale is closed");
-        if (presaleStartTime > 0) {
-            require(
-                block.timestamp >= presaleStartTime,
-                "Presale has not started yet"
-            );
-            if (!isPresaleOpened) isPresaleOpened = true;
-        }
-        if (saleCapDBTT > 0) {
-            require(totalPurchasedDBTT <= saleCapDBTT, "Sale cap reached");
-        }
+        require(isPresaleOpened, "Presale is closed");
+
         if (minUSDTContribution > 0 && token == USDT) {
             require(
                 amount >= minUSDTContribution,
                 "Amount must be greater than min contribution"
             );
+        } else if (token == USDT) {
+            require(amount > 1000, "Amount must be greater than 1000 wei");
         }
         if (minETHContribution > 0 && token == WETH) {
             require(
                 amount >= minETHContribution,
                 "Amount must be greater than min contribution"
             );
+        } else if (token == WETH) {
+            require(amount > 1000, "Amount must be greater than 1000 wei");
         }
         require(amount > 0, "Amount must be greater than 0");
         require(
@@ -533,25 +488,33 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
         if (token == USDT) {
             users[msg.sender].totalContributionUSDT += amount;
             allocation = (amount * priceUSDTRate) * 10 ** (12); // 18 - 6
+            totalRaisedUSDT += amount;
         } else {
             users[msg.sender].totalContributionETH += amount;
-            uint256 priceETHRate = getETHPrice() * priceUSDTRate / 10 ** 8;
-            allocation = amount * priceETHRate;
+            allocation = amount * getETHPrice() * priceUSDTRate / 10 ** 8;
+            totalRaisedETH += amount;
         }
 
         if (maxDBTTAllocation > 0) {
             require(
-                users[msg.sender].totalPurchasedTokens + amount <=
+                users[msg.sender].totalPurchasedTokens + allocation <=
                     maxDBTTAllocation,
                 "Amount must be less than max allocation"
             );
         }
-        if (saleCapDBTT > 0) {
-            require(
-                totalPurchasedDBTT + allocation <= saleCapDBTT,
-                "Sale cap reached"
-            );
+
+        if (purchasedDBTTRound + allocation > saleCapDBTT) {
+            if (currentRound + 1 < totalContributionRounds) {
+                uint256 remainingDBTT = allocation - (saleCapDBTT - purchasedDBTTRound);
+                _startNewRound();
+                purchasedDBTTRound += remainingDBTT;
+            } else {
+                revert("Sale cap reached");
+            }
+        } else {
+            purchasedDBTTRound += allocation;
         }
+
         users[msg.sender].totalPurchasedTokens += allocation;
         totalPurchasedDBTT += allocation;
 
@@ -584,15 +547,14 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
                 break;
             }
 
-            uint256 commission = (amount * commissionRates[i]) / 100;
+            uint256 commission = (amount * commissionRates[i]) / 1000;
 
             if (isCommissionDBTT && token == USDT) {
-                uint256 commissionDBTT = (commission * priceUSDTRate) / 10 ** 6;
+                uint256 commissionDBTT = (commission * priceUSDTRate) * 10 ** 12;
                 users[currentReferrer].totalCommissionDBTT += commissionDBTT;
                 globalCommissionDBTT += commissionDBTT;
             } else if (isCommissionDBTT) {
-                uint256 priceETHRate = getETHPrice() * priceUSDTRate / 10 ** 8;
-                uint256 commissionDBTT = commission * priceETHRate;
+                uint256 commissionDBTT = commission * getETHPrice() * priceUSDTRate / 10 ** 8;
                 users[currentReferrer].totalCommissionDBTT += commissionDBTT;
                 globalCommissionDBTT += commissionDBTT;
             } else if (token == USDT) {
@@ -663,23 +625,80 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
     }
 
     // Function to withdraw ETH
-    function withdrawETH() external onlyOwner nonReentrant {
-        require(isPresaleSuccess, "Presale not yet completed");
+    function withdrawETH(uint256 _amount) external onlyOwner nonReentrant {
         uint256 amount = IERC20(WETH).balanceOf(address(this));
-        require(amount > globalCommissionETH - globalCommissionETHPaid, "Not enough ETH to withdraw");
-        amount -= globalCommissionETH - globalCommissionETHPaid;
-        bool sent = IERC20(WETH).transfer(msg.sender, amount);
+        require(amount >= _amount, "Not enough ETH to withdraw");
+        require(
+            amount - _amount > globalCommissionETH - globalCommissionETHPaid,
+            "Not enough ETH to withdraw"
+        );
+
+        if (serviceFeeReceiver != address(0) && serviceFee > 0) {
+            uint256 serviceFeeAmount = (_amount * serviceFee) / 1000;
+            bool sentFees = IERC20(WETH).transfer(serviceFeeReceiver, serviceFeeAmount);
+            require(sentFees, "ETH Token transfer failed");
+            _amount -= serviceFeeAmount;
+        }
+
+        bool sent = IERC20(WETH).transfer(msg.sender, _amount);
         require(sent, "ETH Token transfer failed");
     }
 
     // Function to withdraw USDT
-    function withdrawUSDT() external onlyOwner nonReentrant {
-        require(isPresaleSuccess, "Presale not yet completed");
+    function withdrawUSDT(uint256 _amount) external onlyOwner nonReentrant {
         uint256 amount = IERC20(USDT).balanceOf(address(this));
-        require(amount > globalCommissionUSDT - globalCommissionUSDTPaid, "Not enough USDT to withdraw");
-        amount -= globalCommissionUSDT - globalCommissionUSDTPaid;
-        bool sent = IERC20(USDT).transfer(msg.sender, amount);
+        require(amount >= _amount, "Not enough USDT to withdraw");
+        require(
+            amount - _amount > globalCommissionUSDT - globalCommissionUSDTPaid,
+            "Not enough USDT to withdraw"
+        );
+
+        if (serviceFeeReceiver != address(0) && serviceFee > 0) {
+            uint256 serviceFeeAmount = (_amount * serviceFee) / 1000;
+            bool sentFees = IERC20(USDT).transfer(serviceFeeReceiver, serviceFeeAmount);
+            require(sentFees, "USDT Token transfer failed");
+            _amount -= serviceFeeAmount;
+        }
+
+        bool sent = IERC20(USDT).transfer(msg.sender, _amount);
         require(sent, "USDT Token transfer failed");
+    }
+
+    // Function to withdraw all USDT and all WETH
+    function withdrawAll() external onlyOwner nonReentrant {
+        uint256 amountUSDT = IERC20(USDT).balanceOf(address(this));
+        uint256 amountETH = IERC20(WETH).balanceOf(address(this));
+        require(
+            amountUSDT >
+                globalCommissionUSDT -
+                    globalCommissionUSDTPaid,
+            "Not enough USDT to withdraw"
+        );
+        require(
+            amountETH >
+                globalCommissionETH -
+                    globalCommissionETHPaid,
+            "Not enough ETH to withdraw"
+        );
+        
+        amountUSDT -= globalCommissionUSDT - globalCommissionUSDTPaid;
+        amountETH -= globalCommissionETH - globalCommissionETHPaid;
+
+        if (serviceFeeReceiver != address(0) && serviceFee > 0) {
+            uint256 serviceFeeAmountUSDT = (amountUSDT * serviceFee) / 1000;
+            uint256 serviceFeeAmountETH = (amountETH * serviceFee) / 1000;
+            bool sentFeesUSDT = IERC20(USDT).transfer(serviceFeeReceiver, serviceFeeAmountUSDT);
+            bool sentFeesETH = IERC20(WETH).transfer(serviceFeeReceiver, serviceFeeAmountETH);
+            require(sentFeesUSDT, "USDT Token transfer failed");
+            require(sentFeesETH, "ETH Token transfer failed");
+            amountUSDT -= serviceFeeAmountUSDT;
+            amountETH -= serviceFeeAmountETH;
+        }
+
+        bool sentUSDT = IERC20(USDT).transfer(msg.sender, amountUSDT);
+        bool sentETH = IERC20(WETH).transfer(msg.sender, amountETH);
+        require(sentUSDT, "USDT Token transfer failed");
+        require(sentETH, "ETH Token transfer failed");
     }
 
     // Function to withdraw DBTT
@@ -687,10 +706,22 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
         uint256 amount = IERC20(DBTT).balanceOf(address(this));
         if (isPresaleSuccess) {
             require(
-                amount > globalCommissionDBTT + totalPurchasedDBTT + globalTotalAirdrop - globalCommissionDBTTPaid - totalPurchasedDBTTClaimed - globalTotalAirdropClaimed,
+                amount >
+                    globalCommissionDBTT +
+                        totalPurchasedDBTT +
+                        globalTotalAirdrop -
+                        globalCommissionDBTTPaid -
+                        totalPurchasedDBTTClaimed -
+                        globalTotalAirdropClaimed,
                 "Not enough DBTT to withdraw"
             );
-            amount -= globalCommissionDBTT + totalPurchasedDBTT + globalTotalAirdrop - globalCommissionDBTTPaid - totalPurchasedDBTTClaimed - globalTotalAirdropClaimed;
+            amount -=
+                globalCommissionDBTT +
+                totalPurchasedDBTT +
+                globalTotalAirdrop -
+                globalCommissionDBTTPaid -
+                totalPurchasedDBTTClaimed -
+                globalTotalAirdropClaimed;
             bool sent = IERC20(DBTT).transfer(msg.sender, amount);
             require(sent, "DBTT Token transfer failed");
         } else if (isPresaleCancelled && amount > 0) {
