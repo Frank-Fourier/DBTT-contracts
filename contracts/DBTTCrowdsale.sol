@@ -427,8 +427,7 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
             }
         }
 
-        uint256 allocation = (msg.value * getETHPrice() * priceUSDTRate) /
-            10 ** 8;
+        uint256 allocation = (msg.value * getETHPrice() / priceUSDTRate) / 10 ** 2;
 
         // maybe not here
         if (maxDBTTAllocation > 0) {
@@ -442,19 +441,21 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
         if (purchasedDBTTRound + allocation > saleCapDBTT) {
             if (currentRound + 1 < totalContributionRounds) {
                 uint256 currentRoundDBTT = saleCapDBTT - purchasedDBTTRound;
-                uint256 getSpent = currentRoundDBTT / priceUSDTRate / 10 ** 12;
-                uint256 getUSDTInitial = (msg.value * getETHPrice()) / 10 ** 12;
+                uint256 getSpent = currentRoundDBTT * priceUSDTRate / 10 ** 18;
+                uint256 getUSDTInitial = (msg.value * getETHPrice()) / 10 ** 20;
                 _startNewRound();
-                uint256 remainingDBTT = (getUSDTInitial - getSpent) *
-                    priceUSDTRate *
-                    10 ** 12;
+                uint256 remainingDBTT = (getUSDTInitial - getSpent) * 10 ** 18 / priceUSDTRate;
                 allocation = currentRoundDBTT + remainingDBTT;
                 purchasedDBTTRound += remainingDBTT;
             } else {
                 revert("Sale cap reached");
             }
         } else if (purchasedDBTTRound + allocation == saleCapDBTT) {
-            _startNewRound();
+            if (currentRound + 1 < totalContributionRounds) {
+                _startNewRound();
+            } else {
+                purchasedDBTTRound += allocation;
+            }
         } else {
             purchasedDBTTRound += allocation;
         }
@@ -526,11 +527,11 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
         uint256 allocation;
         if (token == USDT) {
             users[msg.sender].totalContributionUSDT += amount;
-            allocation = (amount * priceUSDTRate) * 10 ** (12); // 18 - 6
+            allocation = amount * 10 ** (18) / priceUSDTRate;
             totalRaisedUSDT += amount;
         } else {
             users[msg.sender].totalContributionETH += amount;
-            allocation = (amount * getETHPrice() * priceUSDTRate) / 10 ** 8;
+            allocation = (amount * getETHPrice() / priceUSDTRate) / 10 ** 2;
             totalRaisedETH += amount;
         }
 
@@ -545,24 +546,26 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
         if (purchasedDBTTRound + allocation > saleCapDBTT) {
             if (currentRound + 1 < totalContributionRounds) {
                 uint256 currentRoundDBTT = saleCapDBTT - purchasedDBTTRound;
-                uint256 getSpent = currentRoundDBTT / priceUSDTRate / 10 ** 12;
+                uint256 getSpent = currentRoundDBTT * priceUSDTRate / 10 ** 18;
                 uint256 getUSDTInitial;
                 if (token == USDT) {
                     getUSDTInitial = amount;
                 } else {
-                    getUSDTInitial = (amount * getETHPrice()) / 10 ** 12;
+                    getUSDTInitial = (amount * getETHPrice()) / 10 ** 20;
                 }
                 _startNewRound();
-                uint256 remainingDBTT = (getUSDTInitial - getSpent) *
-                    priceUSDTRate *
-                    10 ** 12;
+                uint256 remainingDBTT = (getUSDTInitial - getSpent) * 10 ** 18 / priceUSDTRate;
                 allocation = currentRoundDBTT + remainingDBTT;
                 purchasedDBTTRound += remainingDBTT;
             } else {
                 revert("Sale cap reached");
             }
         } else if (purchasedDBTTRound + allocation == saleCapDBTT) {
-            _startNewRound();
+            if (currentRound + 1 < totalContributionRounds) {
+                _startNewRound();
+            } else {
+                purchasedDBTTRound += allocation;
+            }
         } else {
             purchasedDBTTRound += allocation;
         }
@@ -602,14 +605,11 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
             uint256 commission = (amount * commissionRates[i]) / 1000;
 
             if (isCommissionDBTT && token == USDT) {
-                uint256 commissionDBTT = (commission * priceUSDTRate) *
-                    10 ** 12;
+                uint256 commissionDBTT = commission * 10 ** 18 / priceUSDTRate;
                 users[currentReferrer].totalCommissionDBTT += commissionDBTT;
                 globalCommissionDBTT += commissionDBTT;
             } else if (isCommissionDBTT) {
-                uint256 commissionDBTT = (commission *
-                    getETHPrice() *
-                    priceUSDTRate) / 10 ** 8;
+                uint256 commissionDBTT = commission * getETHPrice() / priceUSDTRate / 10 ** 2;
                 users[currentReferrer].totalCommissionDBTT += commissionDBTT;
                 globalCommissionDBTT += commissionDBTT;
             } else if (token == USDT) {
