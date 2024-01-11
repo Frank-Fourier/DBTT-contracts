@@ -420,7 +420,7 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
         users[msg.sender].totalContributionETH += msg.value;
 
         if (purchasedDBTTRound == saleCapDBTT) {
-            if (currentRound + 1 < totalContributionRounds) {
+            if (currentRound < totalContributionRounds) {
                 _startNewRound();
             } else {
                 revert("Sale cap reached");
@@ -439,7 +439,7 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
         }
 
         if (purchasedDBTTRound + allocation > saleCapDBTT) {
-            if (currentRound + 1 < totalContributionRounds) {
+            if (currentRound < totalContributionRounds) {
                 uint256 currentRoundDBTT = saleCapDBTT - purchasedDBTTRound;
                 uint256 getSpent = currentRoundDBTT * priceUSDTRate / 10 ** 18;
                 uint256 getUSDTInitial = (msg.value * getETHPrice()) / 10 ** 20;
@@ -447,11 +447,12 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
                 uint256 remainingDBTT = (getUSDTInitial - getSpent) * 10 ** 18 / priceUSDTRate;
                 allocation = currentRoundDBTT + remainingDBTT;
                 purchasedDBTTRound += remainingDBTT;
+                require(purchasedDBTTRound <= saleCapDBTT, "Sale cap reached");
             } else {
                 revert("Sale cap reached");
             }
         } else if (purchasedDBTTRound + allocation == saleCapDBTT) {
-            if (currentRound + 1 < totalContributionRounds) {
+            if (currentRound < totalContributionRounds) {
                 _startNewRound();
             } else {
                 purchasedDBTTRound += allocation;
@@ -517,7 +518,7 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
         require(sent, "Token transfer failed");
 
         if (purchasedDBTTRound == saleCapDBTT) {
-            if (currentRound + 1 < totalContributionRounds) {
+            if (currentRound < totalContributionRounds) {
                 _startNewRound();
             } else {
                 revert("Sale cap reached");
@@ -544,7 +545,7 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
         }
 
         if (purchasedDBTTRound + allocation > saleCapDBTT) {
-            if (currentRound + 1 < totalContributionRounds) {
+            if (currentRound < totalContributionRounds) {
                 uint256 currentRoundDBTT = saleCapDBTT - purchasedDBTTRound;
                 uint256 getSpent = currentRoundDBTT * priceUSDTRate / 10 ** 18;
                 uint256 getUSDTInitial;
@@ -557,11 +558,12 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
                 uint256 remainingDBTT = (getUSDTInitial - getSpent) * 10 ** 18 / priceUSDTRate;
                 allocation = currentRoundDBTT + remainingDBTT;
                 purchasedDBTTRound += remainingDBTT;
+                require(purchasedDBTTRound <= saleCapDBTT, "Sale cap reached");
             } else {
                 revert("Sale cap reached");
             }
         } else if (purchasedDBTTRound + allocation == saleCapDBTT) {
-            if (currentRound + 1 < totalContributionRounds) {
+            if (currentRound < totalContributionRounds) {
                 _startNewRound();
             } else {
                 purchasedDBTTRound += allocation;
