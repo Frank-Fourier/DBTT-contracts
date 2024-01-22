@@ -23,6 +23,16 @@ interface IERC20 {
     function balanceOf(address account) external view returns (uint256);
 }
 
+interface IERC20USDT {
+    function transferFrom(
+        address sender,
+        address recipient,
+        uint256 amount
+    ) external;
+
+    function transfer(address to, uint256 value) external;
+}
+
 // Interface for Wrapped Ether (WETH).
 interface IWETH {
     function deposit() external payable;
@@ -99,13 +109,13 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
     mapping(uint256 => Presale) public contributionRound;
 
     // Addresses for USDT, WETH, and DBTT tokens.
-    address public constant USDT = 0x4d527d0b4E5Fc7cb057EbdE78f1c69FFC337125B;
-    address public constant WETH = 0xB4FBF271143F4FBf7B91A5ded31805e42b2208d6;
-    address public constant DBTT = 0xe1fFB714B7A3A6b2e823d036e75076887382d6bB;
+    address public constant USDT = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
+    address public constant WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
+    address public constant DBTT = 0xe97CAbCBa4C9bdf35b3321c98440F7a88C745aCf;
     address public serviceFeeReceiver;
     IWETH private constant weth = IWETH(WETH);
     Oracle public constant priceFeed =
-        Oracle(0xD4a33860578De61DBAbDc8BFdb98FD742fA7028e);
+        Oracle(0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419);
 
     // Commission rates for the referral program.
     uint256[] public commissionRates;
@@ -113,6 +123,7 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
     // Various configuration parameters.
     uint256 public referralDepth;
     uint256 public priceUSDTRate;
+    uint256 public launchPriceUSDTRate = 1960;
     uint256 public nextPriceUSDTRate;
     uint256 public minUSDTContribution;
     uint256 public minETHContribution;
@@ -359,6 +370,11 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
         serviceFeeReceiver = _serviceFeeReceiver;
     }
 
+    function setLaunchPrice(uint256 _launchPriceUSDTRate) external onlyOwner {
+        require(_launchPriceUSDTRate > 0, "Price must be greater than 0");
+        launchPriceUSDTRate = _launchPriceUSDTRate;
+    }
+
     function _startNewRound() internal {
         require(totalContributionRounds > 0, "No round exists yet!");
 
@@ -427,7 +443,8 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
             }
         }
 
-        uint256 allocation = (msg.value * getETHPrice() / priceUSDTRate) / 10 ** 2;
+        uint256 allocation = ((msg.value * getETHPrice()) / priceUSDTRate) /
+            10 ** 2;
 
         // maybe not here
         if (maxDBTTAllocation > 0) {
@@ -441,10 +458,12 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
         if (purchasedDBTTRound + allocation > saleCapDBTT) {
             if (currentRound < totalContributionRounds) {
                 uint256 currentRoundDBTT = saleCapDBTT - purchasedDBTTRound;
-                uint256 getSpent = currentRoundDBTT * priceUSDTRate / 10 ** 18;
+                uint256 getSpent = (currentRoundDBTT * priceUSDTRate) /
+                    10 ** 18;
                 uint256 getUSDTInitial = (msg.value * getETHPrice()) / 10 ** 20;
                 _startNewRound();
-                uint256 remainingDBTT = (getUSDTInitial - getSpent) * 10 ** 18 / priceUSDTRate;
+                uint256 remainingDBTT = ((getUSDTInitial - getSpent) *
+                    10 ** 18) / priceUSDTRate;
                 allocation = currentRoundDBTT + remainingDBTT;
                 purchasedDBTTRound += remainingDBTT;
                 require(purchasedDBTTRound <= saleCapDBTT, "Sale cap reached");
@@ -509,13 +528,22 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
         );
         require(token == USDT || token == WETH, "ERC20 token not valid");
 
-        // Transfer tokens to this contract
-        bool sent = IERC20(token).transferFrom(
-            msg.sender,
-            address(this),
-            amount
-        );
-        require(sent, "Token transfer failed");
+        if (token == USDT) {
+            // Transfer tokens to this contract
+            IERC20USDT(token).transferFrom(
+                msg.sender,
+                address(this),
+                amount
+            );
+        } else {
+            // Transfer tokens to this contract
+            bool sent = IERC20(token).transferFrom(
+                msg.sender,
+                address(this),
+                amount
+            );
+            require(sent, "Token transfer failed");
+        }
 
         if (purchasedDBTTRound == saleCapDBTT) {
             if (currentRound < totalContributionRounds) {
@@ -528,11 +556,11 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
         uint256 allocation;
         if (token == USDT) {
             users[msg.sender].totalContributionUSDT += amount;
-            allocation = amount * 10 ** (18) / priceUSDTRate;
+            allocation = (amount * 10 ** (18)) / priceUSDTRate;
             totalRaisedUSDT += amount;
         } else {
             users[msg.sender].totalContributionETH += amount;
-            allocation = (amount * getETHPrice() / priceUSDTRate) / 10 ** 2;
+            allocation = ((amount * getETHPrice()) / priceUSDTRate) / 10 ** 2;
             totalRaisedETH += amount;
         }
 
@@ -547,7 +575,8 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
         if (purchasedDBTTRound + allocation > saleCapDBTT) {
             if (currentRound < totalContributionRounds) {
                 uint256 currentRoundDBTT = saleCapDBTT - purchasedDBTTRound;
-                uint256 getSpent = currentRoundDBTT * priceUSDTRate / 10 ** 18;
+                uint256 getSpent = (currentRoundDBTT * priceUSDTRate) /
+                    10 ** 18;
                 uint256 getUSDTInitial;
                 if (token == USDT) {
                     getUSDTInitial = amount;
@@ -555,7 +584,8 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
                     getUSDTInitial = (amount * getETHPrice()) / 10 ** 20;
                 }
                 _startNewRound();
-                uint256 remainingDBTT = (getUSDTInitial - getSpent) * 10 ** 18 / priceUSDTRate;
+                uint256 remainingDBTT = ((getUSDTInitial - getSpent) *
+                    10 ** 18) / priceUSDTRate;
                 allocation = currentRoundDBTT + remainingDBTT;
                 purchasedDBTTRound += remainingDBTT;
                 require(purchasedDBTTRound <= saleCapDBTT, "Sale cap reached");
@@ -607,11 +637,14 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
             uint256 commission = (amount * commissionRates[i]) / 1000;
 
             if (isCommissionDBTT && token == USDT) {
-                uint256 commissionDBTT = commission * 10 ** 18 / priceUSDTRate;
+                uint256 commissionDBTT = (commission * 10 ** 18) /
+                    priceUSDTRate;
                 users[currentReferrer].totalCommissionDBTT += commissionDBTT;
                 globalCommissionDBTT += commissionDBTT;
             } else if (isCommissionDBTT) {
-                uint256 commissionDBTT = commission * getETHPrice() / priceUSDTRate / 10 ** 2;
+                uint256 commissionDBTT = (commission * getETHPrice()) /
+                    priceUSDTRate /
+                    10 ** 2;
                 users[currentReferrer].totalCommissionDBTT += commissionDBTT;
                 globalCommissionDBTT += commissionDBTT;
             } else if (token == USDT) {
@@ -645,8 +678,7 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
         uint256 amountUSDT = users[msg.sender].totalCommissionUSDT;
         if (amountUSDT > 0) {
             users[msg.sender].totalCommissionUSDT = 0;
-            bool sent = IERC20(USDT).transfer(msg.sender, amountUSDT);
-            require(sent, "Token transfer failed");
+            IERC20USDT(USDT).transfer(msg.sender, amountUSDT);
             globalCommissionUSDTPaid += amountUSDT;
         }
         uint256 amountETH = users[msg.sender].totalCommissionETH;
@@ -686,7 +718,7 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
         uint256 amount = IERC20(WETH).balanceOf(address(this));
         require(amount >= _amount, "Not enough ETH to withdraw");
         require(
-            amount - _amount > globalCommissionETH - globalCommissionETHPaid,
+            amount - _amount >= globalCommissionETH - globalCommissionETHPaid,
             "Not enough ETH to withdraw"
         );
 
@@ -709,22 +741,20 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
         uint256 amount = IERC20(USDT).balanceOf(address(this));
         require(amount >= _amount, "Not enough USDT to withdraw");
         require(
-            amount - _amount > globalCommissionUSDT - globalCommissionUSDTPaid,
+            amount - _amount >= globalCommissionUSDT - globalCommissionUSDTPaid,
             "Not enough USDT to withdraw"
         );
 
         if (serviceFeeReceiver != address(0) && serviceFee > 0) {
             uint256 serviceFeeAmount = (_amount * serviceFee) / 1000;
-            bool sentFees = IERC20(USDT).transfer(
+            IERC20USDT(USDT).transfer(
                 serviceFeeReceiver,
                 serviceFeeAmount
             );
-            require(sentFees, "USDT Token transfer failed");
             _amount -= serviceFeeAmount;
         }
 
-        bool sent = IERC20(USDT).transfer(msg.sender, _amount);
-        require(sent, "USDT Token transfer failed");
+        IERC20USDT(USDT).transfer(msg.sender, _amount);
     }
 
     // Function to withdraw all USDT and all WETH
@@ -733,11 +763,11 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
         uint256 amountUSDT = IERC20(USDT).balanceOf(address(this));
         uint256 amountETH = IERC20(WETH).balanceOf(address(this));
         require(
-            amountUSDT > globalCommissionUSDT - globalCommissionUSDTPaid,
+            amountUSDT >= globalCommissionUSDT - globalCommissionUSDTPaid,
             "Not enough USDT to withdraw"
         );
         require(
-            amountETH > globalCommissionETH - globalCommissionETHPaid,
+            amountETH >= globalCommissionETH - globalCommissionETHPaid,
             "Not enough ETH to withdraw"
         );
 
@@ -747,7 +777,7 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
         if (serviceFeeReceiver != address(0) && serviceFee > 0) {
             uint256 serviceFeeAmountUSDT = (amountUSDT * serviceFee) / 1000;
             uint256 serviceFeeAmountETH = (amountETH * serviceFee) / 1000;
-            bool sentFeesUSDT = IERC20(USDT).transfer(
+            IERC20USDT(USDT).transfer(
                 serviceFeeReceiver,
                 serviceFeeAmountUSDT
             );
@@ -755,15 +785,13 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
                 serviceFeeReceiver,
                 serviceFeeAmountETH
             );
-            require(sentFeesUSDT, "USDT Token transfer failed");
             require(sentFeesETH, "ETH Token transfer failed");
             amountUSDT -= serviceFeeAmountUSDT;
             amountETH -= serviceFeeAmountETH;
         }
 
-        bool sentUSDT = IERC20(USDT).transfer(msg.sender, amountUSDT);
+        IERC20USDT(USDT).transfer(msg.sender, amountUSDT);
         bool sentETH = IERC20(WETH).transfer(msg.sender, amountETH);
-        require(sentUSDT, "USDT Token transfer failed");
         require(sentETH, "ETH Token transfer failed");
     }
 
@@ -808,8 +836,7 @@ contract CrowdfundingWithReferral is Ownable, ReentrancyGuard {
         users[msg.sender].totalContributionUSDT = 0;
         users[msg.sender].totalContributionETH = 0;
         if (amountUSDT > 0) {
-            bool sent = IERC20(USDT).transfer(msg.sender, amountUSDT);
-            require(sent, "USDT Token transfer failed");
+            IERC20USDT(USDT).transfer(msg.sender, amountUSDT);
         }
         if (amountETH > 0) {
             bool sent = IERC20(WETH).transfer(msg.sender, amountETH);
